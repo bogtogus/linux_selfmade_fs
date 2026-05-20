@@ -1,0 +1,56 @@
+#ifndef _SELFS_IOCTL_H
+#define _SELFS_IOCTL_H
+
+#ifdef __KERNEL__
+#  include <linux/types.h>
+#  include <linux/ioctl.h>
+#else
+#  include <stdint.h>
+#  include <sys/ioctl.h>
+#  ifndef __u32
+typedef uint32_t __u32;
+#  endif
+#  ifndef __u64
+typedef uint64_t __u64;
+#  endif
+#endif
+
+#define SELFS_IOCTL_MAGIC        'M'
+
+#define SELFS_NAME_LEN           64
+#define SELFS_MAX_FILES_IOCTL    4096
+#define SELFS_MAX_SECTORS_MAP    64
+
+/* Per-file metadata returned by GET_META */
+struct selfs_file_meta {
+	char    name[SELFS_NAME_LEN];
+	__u32   hash;                 /* CRC32 of file contents */
+	__u32   size_sectors;
+	__u64   offset_sector;        /* absolute starting sector on disk */
+};
+
+/* Bulk metadata reply for GET_META */
+struct selfs_meta_list {
+	__u32                  num_files;
+	__u32                  _pad;
+	struct selfs_file_meta  files[SELFS_MAX_FILES_IOCTL];
+};
+
+/*
+ * GET_SECTORS:
+ *   IN  : name (zero-terminated)
+ *   OUT : num_sectors, sectors[]
+ */
+struct selfs_sector_map {
+	char    name[SELFS_NAME_LEN];
+	__u32   num_sectors;
+	__u32   _pad;
+	__u64   sectors[SELFS_MAX_SECTORS_MAP];
+};
+
+#define SELFS_IOCTL_ZERO_ALL     _IO  (SELFS_IOCTL_MAGIC, 1)
+#define SELFS_IOCTL_ERASE_FS     _IO  (SELFS_IOCTL_MAGIC, 2)
+#define SELFS_IOCTL_GET_META     _IOR (SELFS_IOCTL_MAGIC, 3, struct selfs_meta_list)
+#define SELFS_IOCTL_GET_SECTORS  _IOWR(SELFS_IOCTL_MAGIC, 4, struct selfs_sector_map)
+
+#endif /* _SELFS_IOCTL_H */
