@@ -1,23 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0
-/*
- * selfs.c - A minimal block-device-backed filesystem for Linux 6.12.
- *
- * Features:
- *   - Two copies of the superblock with CRC32 integrity check.
- *   - All files are pre-created at format time, same size in sectors.
- *   - Only read/write are supported (no create/unlink/rename/...).
- *   - IOCTLs: zero_all, erase_fs, get_meta (hashes), get_sectors.
- *
- * Module parameters:
- *   device           : path to a block device that will be formatted at
- *                      module load (optional - format is also performed
- *                      at mount time if no valid superblock is found).
- *   sb_first_offset  : sector index of the first superblock copy (default 0).
- *   sb_second_offset : sector index of the second superblock copy (default 1024).
- *   max_name_len     : maximum file-name length used by the FS (default 32).
- *   max_file_sectors : M - maximum file size in sectors (default 4).
- */
-
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/fs.h>
@@ -37,9 +17,6 @@
 #include "selfs.h"
 #include "selfs_ioctl.h"
 
-/* ------------------------------------------------------------------------ */
-/* Module parameters                                                        */
-/* ------------------------------------------------------------------------ */
 
 static char        *device           = "";
 static unsigned int sb_first_offset  = 0;
@@ -59,9 +36,6 @@ MODULE_PARM_DESC(max_name_len, "Maximum file-name length (default 32)");
 module_param(max_file_sectors, uint, 0444);
 MODULE_PARM_DESC(max_file_sectors, "Maximum file size in sectors, M (default 4)");
 
-/* ------------------------------------------------------------------------ */
-/* Forward declarations                                                     */
-/* ------------------------------------------------------------------------ */
 
 static const struct super_operations  selfs_super_ops;
 static const struct inode_operations  selfs_dir_inode_ops;
@@ -71,12 +45,8 @@ static struct file_system_type        selfs_fs_type;
 
 static struct kmem_cache *selfs_inode_cachep;
 
-/* Static holder tag for bdev_file_open_by_path() during module-load format. */
 static char selfs_format_holder_tag;
 
-/* ------------------------------------------------------------------------ */
-/* Helpers                                                                  */
-/* ------------------------------------------------------------------------ */
 
 static u32 selfs_sb_compute_hash(struct selfs_super_block_disk *sb)
 {
@@ -89,14 +59,6 @@ static u32 selfs_sb_compute_hash(struct selfs_super_block_disk *sb)
 	return hash;
 }
 
-/*
- * Compute on-disk file layout for the given parameters.
- *
- *   region 1: (sb1_offset, sb2_offset)         -> [sb1_offset+1, sb2_offset)
- *   region 2: (sb2_offset, total_sectors)      -> [sb2_offset+1, total_sectors)
- *
- * Files cannot span across sb_second_offset.
- */
 static int selfs_compute_layout(u64 total_sectors, u64 sb1, u64 sb2,
 			       u32 file_size,
 			       u64 *r1s, u64 *r1e,
@@ -134,10 +96,6 @@ static int selfs_compute_layout(u64 total_sectors, u64 sb1, u64 sb2,
 	return 0;
 }
 
-/*
- * Build the in-memory file-info array from the (already populated) disk
- * superblock fields of sbi.
- */
 static int selfs_build_file_table(struct selfs_sb_info *sbi)
 {
 	u64 r1s = le64_to_cpu(sbi->disk_sb.region1_start);
@@ -183,7 +141,6 @@ static int selfs_build_file_table(struct selfs_sb_info *sbi)
 	return 0;
 }
 
-/* Read a single sector via buffer-head cache. */
 static int selfs_read_sector(struct super_block *sb, u64 sector, void *buf)
 {
 	struct buffer_head *bh;
@@ -198,7 +155,7 @@ static int selfs_read_sector(struct super_block *sb, u64 sector, void *buf)
 	return 0;
 }
 
-/* Synchronous write of a full sector via the buffer-head cache. */
+
 static int selfs_write_sector(struct super_block *sb, u64 sector, const void *buf)
 {
 	struct buffer_head *bh;
@@ -218,14 +175,7 @@ static int selfs_write_sector(struct super_block *sb, u64 sector, const void *bu
 	return 0;
 }
 
-/* ------------------------------------------------------------------------ */
-/* Superblock I/O                                                           */
-/* ------------------------------------------------------------------------ */
 
-/*
- * Read a superblock copy from the given sector, verify magic and CRC.
- * Returns 0 on success.
- */
 static int selfs_read_and_verify_sb(struct super_block *sb, u64 sector,
 				   struct selfs_super_block_disk *out)
 {
@@ -259,7 +209,7 @@ static int selfs_read_and_verify_sb(struct super_block *sb, u64 sector,
 	return 0;
 }
 
-/* Build a fresh superblock structure from current module parameters. */
+
 static int selfs_build_fresh_sb(struct selfs_super_block_disk *out, u64 total_sectors)
 {
 	u64 r1s, r1e, r2s, r2e;
@@ -291,10 +241,7 @@ static int selfs_build_fresh_sb(struct selfs_super_block_disk *out, u64 total_se
 	return 0;
 }
 
-/*
- * Format the device that is already opened as sb->s_bdev (called from
- * fill_super when no valid superblock is found on disk).
- */
+
 static int selfs_format_at_mount(struct super_block *sb)
 {
 	struct selfs_super_block_disk *new_sb;
@@ -325,9 +272,6 @@ out:
 	return ret;
 }
 
-/* ------------------------------------------------------------------------ */
-/* Inode handling                                                           */
-/* ------------------------------------------------------------------------ */
 
 static struct inode *selfs_alloc_inode(struct super_block *sb)
 {
@@ -404,9 +348,6 @@ static struct inode *selfs_iget(struct super_block *sb, unsigned long ino)
 	return inode;
 }
 
-/* ------------------------------------------------------------------------ */
-/* Directory operations                                                     */
-/* ------------------------------------------------------------------------ */
 
 static struct dentry *selfs_lookup(struct inode *dir, struct dentry *dentry,
 				  unsigned int flags)
@@ -462,9 +403,6 @@ static int selfs_iterate_shared(struct file *file, struct dir_context *ctx)
 	return 0;
 }
 
-/* ------------------------------------------------------------------------ */
-/* File operations (read / write)                                           */
-/* ------------------------------------------------------------------------ */
 
 static ssize_t selfs_file_read(struct file *file, char __user *buf,
 			      size_t count, loff_t *ppos)
@@ -564,9 +502,6 @@ static ssize_t selfs_file_write(struct file *file, const char __user *buf,
 	return (ssize_t)copied;
 }
 
-/* ------------------------------------------------------------------------ */
-/* IOCTL handlers                                                           */
-/* ------------------------------------------------------------------------ */
 
 static long selfs_ioctl_zero_all(struct super_block *sb)
 {
@@ -742,9 +677,6 @@ static long selfs_unlocked_ioctl(struct file *file, unsigned int cmd,
 	}
 }
 
-/* ------------------------------------------------------------------------ */
-/* Operation tables                                                         */
-/* ------------------------------------------------------------------------ */
 
 static void selfs_put_super(struct super_block *sb)
 {
@@ -790,9 +722,6 @@ static const struct file_operations selfs_file_ops = {
 	.compat_ioctl   = compat_ptr_ioctl,
 };
 
-/* ------------------------------------------------------------------------ */
-/* fill_super / fs_context                                                  */
-/* ------------------------------------------------------------------------ */
 
 static int selfs_fill_super(struct super_block *sb, struct fs_context *fc)
 {
@@ -925,9 +854,6 @@ static struct file_system_type selfs_fs_type = {
 };
 MODULE_ALIAS_FS(SELFS_NAME);
 
-/* ------------------------------------------------------------------------ */
-/* Optional: format the device at module load                               */
-/* ------------------------------------------------------------------------ */
 
 static int selfs_format_device_at_load(const char *path)
 {
@@ -991,9 +917,6 @@ out_close:
 	return ret;
 }
 
-/* ------------------------------------------------------------------------ */
-/* Module init / exit                                                       */
-/* ------------------------------------------------------------------------ */
 
 static int __init selfs_init(void)
 {

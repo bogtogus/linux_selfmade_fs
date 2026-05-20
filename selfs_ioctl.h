@@ -21,26 +21,19 @@ typedef uint64_t __u64;
 #define SELFS_MAX_FILES_IOCTL    4096
 #define SELFS_MAX_SECTORS_MAP    64
 
-/* Per-file metadata returned by GET_META */
 struct selfs_file_meta {
 	char    name[SELFS_NAME_LEN];
-	__u32   hash;                 /* CRC32 of file contents */
+	__u32   hash;
 	__u32   size_sectors;
-	__u64   offset_sector;        /* absolute starting sector on disk */
+	__u64   offset_sector;
 };
 
-/* Bulk metadata reply for GET_META */
 struct selfs_meta_list {
 	__u32                  num_files;
 	__u32                  _pad;
 	struct selfs_file_meta  files[SELFS_MAX_FILES_IOCTL];
 };
 
-/*
- * GET_SECTORS:
- *   IN  : name (zero-terminated)
- *   OUT : num_sectors, sectors[]
- */
 struct selfs_sector_map {
 	char    name[SELFS_NAME_LEN];
 	__u32   num_sectors;

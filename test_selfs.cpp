@@ -1,24 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0
-//
-// test_selfs.cpp - userspace demonstration tool for the selfs kernel module.
-//
-// Commands:
-//   test_selfs test    <mountpoint>            walk the FS, write+read-back
-//                                             a random uint32_t into every
-//                                             file, report pass / fail.
-//   test_selfs zero    <path>                  issue SELFS_IOCTL_ZERO_ALL on
-//                                             <path> (mountpoint or any file
-//                                             inside it).
-//   test_selfs erase   <path>                  issue SELFS_IOCTL_ERASE_FS.
-//   test_selfs meta    <path>                  pretty-print the metadata of
-//                                             every file (offset, size, CRC).
-//   test_selfs sectors <path> <filename>       print the disk-sector mapping
-//                                             of <filename>.
-//
-// <path> in zero / erase / meta / sectors can be the mount directory itself
-// or any regular file inside it, since the kernel module wires the ioctl
-// handler to both the directory and the file file_operations.
-
 #include "selfs_ioctl.h"
 
 #include <cerrno>
@@ -51,7 +30,6 @@ void usage(const char *argv0)
         "  " << argv0 << " sectors <path> <filename>\n";
 }
 
-// --- test ----------------------------------------------------------------
 
 int cmd_test(const std::string &mountpoint)
 {
@@ -133,7 +111,6 @@ int cmd_test(const std::string &mountpoint)
     return fail == 0 ? 0 : 2;
 }
 
-// --- ioctl helpers --------------------------------------------------------
 
 int open_for_ioctl(const std::string &path)
 {

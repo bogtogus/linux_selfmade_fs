@@ -3,18 +3,12 @@ obj-m := selfs.o
 KDIR  ?= /lib/modules/$(shell uname -r)/build
 PWD   := $(shell pwd)
 
-# ---------------------------------------------------------------------------
-# Userspace part
-# ---------------------------------------------------------------------------
 
 CXX      ?= g++
 CXXFLAGS ?= -std=c++17 -Wall -Wextra -O2
 TEST_BIN := test_selfs
 TEST_SRC := test_selfs.cpp
 
-# ---------------------------------------------------------------------------
-# Top-level targets
-# ---------------------------------------------------------------------------
 
 .PHONY: all module test clean help
 

@@ -1,20 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0 */
-/*
- * selfs.h - Common definitions for the selfs kernel module
- *
- * On-disk layout:
- *
- *   sector 0 .. sb_first_offset-1   : (unused, sb_first_offset is usually 0)
- *   sector sb_first_offset          : SuperBlock copy #1
- *   sector r1_start .. r1_end-1     : files region #1
- *   sector sb_second_offset         : SuperBlock copy #2 (duplicate)
- *   sector r2_start .. r2_end-1     : files region #2
- *
- * The integrity of each superblock is protected by CRC32.
- * Files are pre-created at mkfs time, all with the same size in sectors
- * (file_size_sectors), and their names are auto-generated as "f<NNNNN>".
- */
-
 #ifndef _SELFS_H
 #define _SELFS_H
 
@@ -35,10 +18,6 @@
 #define SELFS_MAX_NAME           64           /* compile-time upper bound */
 #define SELFS_MAX_FILES_LIMIT    4096         /* cap to keep RAM usage sane */
 
-/*
- * On-disk superblock structure. Exactly one sector (512 bytes).
- * All multi-byte integers are little-endian on disk.
- */
 struct selfs_super_block_disk {
 	__le32  magic;
 	__le32  version;
@@ -57,11 +36,10 @@ struct selfs_super_block_disk {
 	__u8    reserved[420];        /* pad to 512 bytes */
 } __packed;
 
-/* sanity */
 _Static_assert(sizeof(struct selfs_super_block_disk) == SELFS_SECTOR_SIZE,
 	       "selfs superblock must be exactly one sector");
 
-/* In-memory description of one file */
+
 struct selfs_file_info {
 	char    name[SELFS_MAX_NAME];
 	u64     offset_sector;   /* absolute sector on the block device */
@@ -69,7 +47,7 @@ struct selfs_file_info {
 	u32     ino;
 };
 
-/* In-memory FS-wide info (sb->s_fs_info) */
+
 struct selfs_sb_info {
 	struct selfs_super_block_disk disk_sb;
 	struct selfs_file_info       *files;
@@ -82,7 +60,7 @@ struct selfs_sb_info {
 	struct mutex                 lock;
 };
 
-/* Per-inode private info */
+
 struct selfs_inode_info {
 	u64               offset_sector;
 	u32               size_sectors;
