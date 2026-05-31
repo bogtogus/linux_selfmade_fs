@@ -43,7 +43,8 @@ struct selfs_sector_map {
 
 #define SELFS_IOCTL_ZERO_ALL     _IO  (SELFS_IOCTL_MAGIC, 1)
 #define SELFS_IOCTL_ERASE_FS     _IO  (SELFS_IOCTL_MAGIC, 2)
-#define SELFS_IOCTL_GET_META     _IOR (SELFS_IOCTL_MAGIC, 3, struct selfs_meta_list)
-#define SELFS_IOCTL_GET_SECTORS  _IOWR(SELFS_IOCTL_MAGIC, 4, struct selfs_sector_map)
+
+#define SELFS_IOCTL_GET_META     _IOWR(SELFS_IOCTL_MAGIC, 3, __u64)
+#define SELFS_IOCTL_GET_SECTORS  _IOWR(SELFS_IOCTL_MAGIC, 4, __u64)
 
 #endif /* _SELFS_IOCTL_H */

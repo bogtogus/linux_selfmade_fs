@@ -538,7 +538,7 @@ static long selfs_ioctl_erase_fs(struct super_block *sb)
 	void *zeros;
 	int ret;
 
-	/* First zero all file data. */
+	
 	ret = selfs_ioctl_zero_all(sb);
 	if (ret)
 		return ret;
@@ -661,20 +661,17 @@ static long selfs_unlocked_ioctl(struct file *file, unsigned int cmd,
 	if (_IOC_TYPE(cmd) != SELFS_IOCTL_MAGIC)
 		return -ENOTTY;
 
-	switch (cmd) {
-	case SELFS_IOCTL_ZERO_ALL:
+	if (cmd == SELFS_IOCTL_ZERO_ALL)
 		return selfs_ioctl_zero_all(sb);
-	case SELFS_IOCTL_ERASE_FS:
+	if (cmd == SELFS_IOCTL_ERASE_FS)
 		return selfs_ioctl_erase_fs(sb);
-	case SELFS_IOCTL_GET_META:
+	if (cmd == SELFS_IOCTL_GET_META)
 		return selfs_ioctl_get_meta(sb,
 				(struct selfs_meta_list __user *)arg);
-	case SELFS_IOCTL_GET_SECTORS:
+	if (cmd == SELFS_IOCTL_GET_SECTORS)
 		return selfs_ioctl_get_sectors(sb,
 				(struct selfs_sector_map __user *)arg);
-	default:
-		return -ENOTTY;
-	}
+	return -ENOTTY;
 }
 
 
@@ -747,7 +744,7 @@ static int selfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	mutex_init(&sbi->lock);
 	sb->s_fs_info = sbi;
 
-	/* Try to read either superblock copy. */
+	
 	ret = selfs_read_and_verify_sb(sb, sb_first_offset, &sbi->disk_sb);
 	if (ret) {
 		pr_info("selfs: primary SB invalid, trying backup at sector %u\n",
@@ -757,14 +754,14 @@ static int selfs_fill_super(struct super_block *sb, struct fs_context *fc)
 			pr_info("selfs: no valid superblock found, will format\n");
 			need_format = true;
 		} else {
-			/* Backup is good - restore the primary. */
+			
 			pr_info("selfs: restoring primary SB from backup\n");
 			ret = selfs_write_sector(sb, sb_first_offset, &sbi->disk_sb);
 			if (ret)
 				goto fail;
 		}
 	} else {
-		/* Primary is good - make sure the backup matches. */
+		
 		struct selfs_super_block_disk tmp;
 
 		ret = selfs_read_and_verify_sb(sb, sb_second_offset, &tmp);
@@ -785,7 +782,7 @@ static int selfs_fill_super(struct super_block *sb, struct fs_context *fc)
 			goto fail;
 	}
 
-	/* Populate in-memory fields from the disk SB. */
+	
 	sbi->max_name_len      = le32_to_cpu(sbi->disk_sb.max_name_len);
 	sbi->max_file_sectors  = le32_to_cpu(sbi->disk_sb.max_file_sectors);
 	sbi->file_size_sectors = le32_to_cpu(sbi->disk_sb.file_size_sectors);
@@ -831,7 +828,7 @@ static int selfs_get_tree(struct fs_context *fc)
 
 static void selfs_free_fc(struct fs_context *fc)
 {
-	/* Nothing to free on our side. */
+	
 }
 
 static const struct fs_context_operations selfs_context_ops = {
@@ -946,7 +943,6 @@ static int __init selfs_init(void)
 		if (ret) {
 			pr_warn("selfs: load-time format of \"%s\" failed: %d (the FS can still be created at mount time)\n",
 				device, ret);
-			/* not fatal - mount can still format the device */
 		}
 	}
 
@@ -956,7 +952,7 @@ static int __init selfs_init(void)
 static void __exit selfs_exit(void)
 {
 	unregister_filesystem(&selfs_fs_type);
-	/* Make sure RCU callbacks finish before destroying the cache. */
+	
 	rcu_barrier();
 	kmem_cache_destroy(selfs_inode_cachep);
 	pr_info("selfs: module unloaded\n");
