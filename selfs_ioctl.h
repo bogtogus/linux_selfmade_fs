@@ -5,14 +5,8 @@
 #  include <linux/types.h>
 #  include <linux/ioctl.h>
 #else
-#  include <stdint.h>
+#  include <linux/types.h>   /* provides __u32 / __u64 (matches kernel) */
 #  include <sys/ioctl.h>
-#  ifndef __u32
-typedef uint32_t __u32;
-#  endif
-#  ifndef __u64
-typedef uint64_t __u64;
-#  endif
 #endif
 
 #define SELFS_IOCTL_MAGIC        'M'

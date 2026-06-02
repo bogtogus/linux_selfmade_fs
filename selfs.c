@@ -126,6 +126,7 @@ static int selfs_build_file_table(struct selfs_sb_info *sbi)
 		fi->offset_sector = r1s + (u64)i * fsize;
 		fi->size_sectors  = fsize;
 		fi->ino           = SELFS_FILE_INO_START + idx;
+		fi->used_bytes    = 0;
 	}
 	for (i = 0; i < n2 && idx < total; i++, idx++) {
 		struct selfs_file_info *fi = &sbi->files[idx];
@@ -136,6 +137,7 @@ static int selfs_build_file_table(struct selfs_sb_info *sbi)
 		fi->offset_sector = r2s + (u64)i * fsize;
 		fi->size_sectors  = fsize;
 		fi->ino           = SELFS_FILE_INO_START + idx;
+		fi->used_bytes    = 0;
 	}
 
 	return 0;
@@ -242,37 +244,6 @@ static int selfs_build_fresh_sb(struct selfs_super_block_disk *out, u64 total_se
 }
 
 
-static int selfs_format_at_mount(struct super_block *sb)
-{
-	struct selfs_super_block_disk *new_sb;
-	u64 total_sectors = bdev_nr_sectors(sb->s_bdev);
-	int ret;
-
-	new_sb = kzalloc(sizeof(*new_sb), GFP_KERNEL);
-	if (!new_sb)
-		return -ENOMEM;
-
-	ret = selfs_build_fresh_sb(new_sb, total_sectors);
-	if (ret) {
-		pr_err("selfs: invalid parameters for layout\n");
-		kfree(new_sb);
-		return ret;
-	}
-
-	pr_info("selfs: formatting bdev (total=%llu sectors, num_files=%u, file_size=%u)\n",
-		total_sectors, le32_to_cpu(new_sb->num_files),
-		le32_to_cpu(new_sb->file_size_sectors));
-
-	ret = selfs_write_sector(sb, sb_first_offset, new_sb);
-	if (ret)
-		goto out;
-	ret = selfs_write_sector(sb, sb_second_offset, new_sb);
-out:
-	kfree(new_sb);
-	return ret;
-}
-
-
 static struct inode *selfs_alloc_inode(struct super_block *sb)
 {
 	struct selfs_inode_info *mi;
@@ -336,7 +307,14 @@ static struct inode *selfs_iget(struct super_block *sb, unsigned long ino)
 		inode->i_mode = S_IFREG | 0644;
 		inode->i_op   = &simple_dir_inode_operations; /* fine for regulars too */
 		inode->i_fop  = &selfs_file_ops;
-		inode->i_size = (loff_t)fi->size_sectors * SELFS_SECTOR_SIZE;
+		/*
+		 * i_size is the *logical* length (how much has been written).
+		 * Inodes are evicted on the last close (generic_delete_inode),
+		 * so the length is kept in the mount-lifetime file table
+		 * (fi->used_bytes) and restored here on every (re)open.  The
+		 * physical capacity (M sectors) lives in mi->size_sectors.
+		 */
+		inode->i_size = (loff_t)fi->used_bytes;
 		set_nlink(inode, 1);
 
 		mi->offset_sector = fi->offset_sector;
@@ -374,7 +352,7 @@ static struct dentry *selfs_lookup(struct inode *dir, struct dentry *dentry,
 		}
 	}
 
-	/* not found -> negative dentry */
+
 	return d_splice_alias(NULL, dentry);
 }
 
@@ -387,10 +365,7 @@ static int selfs_iterate_shared(struct file *file, struct dir_context *ctx)
 	if (!dir_emit_dots(file, ctx))
 		return 0;
 
-	/* ctx->pos == 0 -> "."  (handled by dir_emit_dots)
-	 * ctx->pos == 1 -> ".." (handled by dir_emit_dots)
-	 * ctx->pos == 2 + idx -> sbi->files[idx]
-	 */
+
 	while ((u32)(ctx->pos - 2) < sbi->num_files) {
 		u32 idx = (u32)(ctx->pos - 2);
 		struct selfs_file_info *fi = &sbi->files[idx];
@@ -411,7 +386,7 @@ static ssize_t selfs_file_read(struct file *file, char __user *buf,
 	struct selfs_inode_info *mi = SELFS_I(inode);
 	struct super_block *sb = inode->i_sb;
 	loff_t pos = *ppos;
-	loff_t file_size = (loff_t)mi->size_sectors * SELFS_SECTOR_SIZE;
+	loff_t file_size = i_size_read(inode);	/* logical length, not capacity */
 	size_t copied = 0;
 
 	if (pos < 0)
@@ -452,20 +427,21 @@ static ssize_t selfs_file_write(struct file *file, const char __user *buf,
 	struct selfs_inode_info *mi = SELFS_I(inode);
 	struct super_block *sb = inode->i_sb;
 	loff_t pos;
-	loff_t file_size = (loff_t)mi->size_sectors * SELFS_SECTOR_SIZE;
+	loff_t capacity = (loff_t)mi->size_sectors * SELFS_SECTOR_SIZE;
 	size_t copied = 0;
 
+
 	if (file->f_flags & O_APPEND)
-		pos = file_size;
+		pos = i_size_read(inode);
 	else
 		pos = *ppos;
 
 	if (pos < 0)
 		return -EINVAL;
-	if (pos >= file_size)
+	if (pos >= capacity)
 		return -ENOSPC;
-	if ((loff_t)count > file_size - pos)
-		count = (size_t)(file_size - pos);
+	if ((loff_t)count > capacity - pos)
+		count = (size_t)(capacity - pos);
 
 	while (copied < count) {
 		u64 sec_in_file = (u64)(pos + copied) / SELFS_SECTOR_SIZE;
@@ -499,6 +475,14 @@ static ssize_t selfs_file_write(struct file *file, const char __user *buf,
 	}
 
 	*ppos = pos + copied;
+	if (pos + copied > i_size_read(inode)) {
+		struct selfs_sb_info *sbi = SELFS_SB(sb);
+
+		i_size_write(inode, pos + copied);
+
+		if (mi->file_idx < sbi->num_files)
+			sbi->files[mi->file_idx].used_bytes = (u32)(pos + copied);
+	}
 	return (ssize_t)copied;
 }
 
@@ -524,6 +508,7 @@ static long selfs_ioctl_zero_all(struct super_block *sb)
 			if (ret)
 				goto out;
 		}
+		fi->used_bytes = 0;	/* file is now logically empty */
 	}
 	pr_info("selfs: ioctl ZERO_ALL: zeroed %u files\n", sbi->num_files);
 out:
@@ -538,7 +523,6 @@ static long selfs_ioctl_erase_fs(struct super_block *sb)
 	void *zeros;
 	int ret;
 
-	
 	ret = selfs_ioctl_zero_all(sb);
 	if (ret)
 		return ret;
@@ -555,6 +539,8 @@ static long selfs_ioctl_erase_fs(struct super_block *sb)
 	if (ret)
 		goto out;
 	pr_info("selfs: ioctl ERASE_FS: both superblocks zeroed\n");
+
+	sbi->num_files = 0;
 out:
 	mutex_unlock(&sbi->lock);
 	kfree(zeros);
@@ -725,7 +711,6 @@ static int selfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	struct selfs_sb_info *sbi;
 	struct inode *root;
 	int ret;
-	bool need_format = false;
 
 	if (!sb_set_blocksize(sb, SELFS_SECTOR_SIZE)) {
 		pr_err("selfs: block device does not support %d-byte blocks\n",
@@ -744,24 +729,24 @@ static int selfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	mutex_init(&sbi->lock);
 	sb->s_fs_info = sbi;
 
-	
 	ret = selfs_read_and_verify_sb(sb, sb_first_offset, &sbi->disk_sb);
 	if (ret) {
 		pr_info("selfs: primary SB invalid, trying backup at sector %u\n",
 			sb_second_offset);
 		ret = selfs_read_and_verify_sb(sb, sb_second_offset, &sbi->disk_sb);
 		if (ret) {
-			pr_info("selfs: no valid superblock found, will format\n");
-			need_format = true;
-		} else {
-			
-			pr_info("selfs: restoring primary SB from backup\n");
-			ret = selfs_write_sector(sb, sb_first_offset, &sbi->disk_sb);
-			if (ret)
-				goto fail;
+
+			pr_err("selfs: both superblocks are invalid, refusing to mount\n");
+			ret = -EUCLEAN;
+			goto fail;
 		}
+		/* Backup is good - restore the primary from it. */
+		pr_info("selfs: restoring primary SB from backup\n");
+		ret = selfs_write_sector(sb, sb_first_offset, &sbi->disk_sb);
+		if (ret)
+			goto fail;
 	} else {
-		
+		/* Primary is good - make sure the backup matches. */
 		struct selfs_super_block_disk tmp;
 
 		ret = selfs_read_and_verify_sb(sb, sb_second_offset, &tmp);
@@ -773,16 +758,6 @@ static int selfs_fill_super(struct super_block *sb, struct fs_context *fc)
 		}
 	}
 
-	if (need_format) {
-		ret = selfs_format_at_mount(sb);
-		if (ret)
-			goto fail;
-		ret = selfs_read_and_verify_sb(sb, sb_first_offset, &sbi->disk_sb);
-		if (ret)
-			goto fail;
-	}
-
-	
 	sbi->max_name_len      = le32_to_cpu(sbi->disk_sb.max_name_len);
 	sbi->max_file_sectors  = le32_to_cpu(sbi->disk_sb.max_file_sectors);
 	sbi->file_size_sectors = le32_to_cpu(sbi->disk_sb.file_size_sectors);
@@ -828,7 +803,7 @@ static int selfs_get_tree(struct fs_context *fc)
 
 static void selfs_free_fc(struct fs_context *fc)
 {
-	
+
 }
 
 static const struct fs_context_operations selfs_context_ops = {
@@ -952,7 +927,6 @@ static int __init selfs_init(void)
 static void __exit selfs_exit(void)
 {
 	unregister_filesystem(&selfs_fs_type);
-	
 	rcu_barrier();
 	kmem_cache_destroy(selfs_inode_cachep);
 	pr_info("selfs: module unloaded\n");

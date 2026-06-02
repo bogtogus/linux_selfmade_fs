@@ -5,13 +5,17 @@
 #include <linux/mutex.h>
 #include <linux/types.h>
 
-
+/* -----------------------------------------------------------------------
+ * Filesystem identity
+ * --------------------------------------------------------------------- */
 
 #define SELFS_NAME          "selfs"
 #define SELFS_MAGIC         0x53454C46U   /* 'S','E','L','F' */
 #define SELFS_VERSION       1U
 
-
+/* -----------------------------------------------------------------------
+ * Disk geometry
+ * --------------------------------------------------------------------- */
 
 #define SELFS_SECTOR_SIZE   512
 
@@ -19,9 +23,7 @@
 
 #define SELFS_MAX_NAME      64
 
-
 #define SELFS_MAX_FILES_LIMIT   8192U
-
 
 
 #define SELFS_ROOT_INO          1UL
@@ -44,10 +46,8 @@ struct selfs_super_block_disk {
 	__le64  region2_start;      
 	__le64  region2_end;        
 	__le32  hash;               
-
 	u8      _reserved[512 - 84];
 } __packed;
-
 
 static_assert(sizeof(struct selfs_super_block_disk) == SELFS_SECTOR_SIZE,
 	      "selfs_super_block_disk must be exactly 512 bytes");
@@ -59,13 +59,12 @@ struct selfs_file_info {
 	u64     offset_sector;       
 	u32     size_sectors;        
 	u32     ino;                 
+	u32     used_bytes;          
 };
-
 
 
 struct selfs_sb_info {
 	struct selfs_super_block_disk   disk_sb;
-
 
 	u32                     max_name_len;
 	u32                     max_file_sectors;
@@ -73,13 +72,11 @@ struct selfs_sb_info {
 	u64                     sb_first_offset;
 	u64                     sb_second_offset;
 
-
 	u32                     num_files;
 	struct selfs_file_info *files;
 
-	struct mutex            lock;   
+	struct mutex            lock; 
 };
-
 
 
 struct selfs_inode_info {
@@ -88,7 +85,6 @@ struct selfs_inode_info {
 	u32             file_idx;       
 	struct inode    vfs_inode;      
 };
-
 
 
 static inline struct selfs_sb_info *SELFS_SB(struct super_block *sb)
@@ -102,4 +98,3 @@ static inline struct selfs_inode_info *SELFS_I(struct inode *inode)
 }
 
 #endif /* _SELFS_H */
-
